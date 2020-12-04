@@ -1,0 +1,107 @@
+---
+title: "Validation_Sensors"
+author: "Eduardo Jara Alfaro"
+date: "04-12-2020"
+output: ioslides_presentation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(mongolite)
+library(dplyr)
+library(reshape)
+library(plotly)
+library(lubridate)
+
+x <- c("mic0","mic1","mic2","mic3","mic4","mic5","mic6","mic7","mic8","mic9","mic10",
+       "mic11","mic12","mic13","mic14","mic15","mic16","mic17","mic18","mic19","mic20",
+       "mic21","mic22","mic23","mic24","mic25","mic26","mic27","mic28","mic29","mic30",
+       "mic31","accel0","accel1","accel2","accel3","accel4","accel5","accel6","accel7",
+       "accel8","accel9","accel10","accel11","accel12","accel13","accel14","accel15",
+       "accel16","accel17","accel18","accel19","accel20","accel21","accel22","accel23",
+       "accel24","accel25","accel26","accel27","accel28","accel29","accel30","accel31")
+```
+
+## Intro
+
+The application is about the validation of the sensor data for its commercialization The database used corresponds to data from 1 year of sensor validation Sensors range from 0 to 1800. Not all sensors are validated and the date may vary. To validate, the number of measurements and the time interval are verified and compared with the characteristic value of each measurement channel and its expected quartiles.
+
+
+## Read Dbase
+
+```{r dbase, echo=TRUE}
+df <- readRDS("Data/dbase.RDS")
+MESA <- readRDS("Data/MESA.rds")
+DMI <- readRDS("Data/DMI.rds")
+# filter channels
+df$values <- df$values[,c(65:66, 68:131)]
+
+```
+
+## Inputs values
+
+```{r input, echo=TRUE}
+# Get MAC sensor 216. In shiny application **input$dmi**
+KEY <- as.character(DMI[as.numeric("216"),1])
+# Get 1st date via input$date (example "2012-11-25")
+dat <- as_datetime("2020-11-25", tz = "America/Santiago")
+# Get last date via input$date2 (example "2012-11-25")
+dat2 <- ymd_hms(paste("2020-11-26","23:00:00"), tz="America/Santiago")
+# Get DF filter, save en d
+df %>% filter(key == sprintf("/wsn1/%s", KEY)) %>% 
+        filter(timestamp >= dat & timestamp <= dat2) %>% 
+        mutate(key = "216") %>% {.->> d}
+```
+
+
+## Complete measurements
+
+```{r cri2, echo=TRUE}
+# Total casos datos completos
+DataPer <- (sum(complete.cases(d$values))*100)/dim(d$values)[1]
+paste("Mediciones completas", DataPer, "%")
+
+if (DataPer < 90){
+  print("Total de mediciones completas es < 90%")
+}
+
+```
+
+## Battery percentage sensor
+
+```{r cars, echo = TRUE}
+mean(d$values$batt_percentage, na.rm = TRUE)
+```
+
+## Difference in time, sensor data
+
+```{r pressure, echo=TRUE}
+tim <- mean(as.numeric(int_diff(d$timestamp)))
+round(seconds_to_period(tim))
+```
+## Get additional data and reshape
+
+```{r mesa, echo=TRUE, warning=FALSE}
+# Get Position validation. In example **"1"**, input$n shiny app
+MESA %>% group_by(POSICION) %>% filter(POSICION == "1") %>% {. ->> val}
+val <- as.data.frame(val)[,-1]
+val.long <- melt(val, measure = c(1:64))
+
+# melt reshape data
+df2 <- aggregate(d$values[match(x,names(d$values))], 
+                 list(d$key), mean, na.rm = T)
+long <- melt(df2, id = "Group.1", measure = c(2:65))
+long <- long %>% slice(match(x, variable))
+
+```
+
+## Spectral Sensor Validation
+```{r spectral, echo=TRUE, warning=FALSE}
+plot_ly(x=val.long$variable, y=val.long$value, 
+        type = 'box', alpha= 0.3, color = ~val.long$variable) %>% 
+    add_trace(x=long$variable, y=long$value, name = long$Group.1, 
+              type = 'scatter', mode = 'markers+lines', line = list(width = 1),
+              alpha = 1, color = I("red"), opacity = 1, name = "216")
+```
+
+
